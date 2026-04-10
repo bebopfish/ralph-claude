@@ -56,6 +56,7 @@ export default function RunPanel() {
         background: 'var(--apple-surface-1)',
         borderRadius: '12px',
         boxShadow: 'var(--apple-shadow-card)',
+        border: '1px solid rgba(255,255,255,0.1)',
         padding: '24px',
       }}
     >

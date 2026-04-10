@@ -26,6 +26,7 @@ export default function StoryCard({ story, onEdit, onDelete, disabled }: Props) 
         background: 'var(--apple-surface-1)',
         borderRadius: '8px',
         boxShadow: 'var(--apple-shadow-card)',
+        border: '1px solid rgba(255,255,255,0.1)',
         marginBottom: '8px',
         padding: '16px',
       }}

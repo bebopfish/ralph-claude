@@ -90,6 +90,7 @@ export default function PrdPage() {
             background: 'var(--apple-surface-1)',
             borderRadius: '12px',
             boxShadow: 'var(--apple-shadow-card)',
+            border: '1px solid rgba(255,255,255,0.1)',
             padding: '48px 32px',
             textAlign: 'center',
           }}
@@ -170,6 +171,7 @@ export default function PrdPage() {
             background: 'var(--apple-surface-1)',
             borderRadius: '12px',
             boxShadow: 'var(--apple-shadow-card)',
+            border: '1px solid rgba(255,255,255,0.1)',
             padding: '48px 32px',
             textAlign: 'center',
           }}
