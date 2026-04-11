@@ -1,5 +1,7 @@
 # Ralph Claude
 
+[English](./README.en.md) | 中文
+
 更易使用的 [Ralph](https://github.com/snarktank/ralph) —— 基于 Web UI 的 AI 自动编程循环工具。
 
 Ralph 通过反复调用 Claude Code CLI，自动逐条实现 PRD（产品需求文档）中的 Story，直到全部完成。
