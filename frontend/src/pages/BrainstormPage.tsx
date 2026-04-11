@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { apiBrainstorm, ChatMessage, StoryDraft } from '../api/brainstorm';
 import { apiPrd } from '../api/prd';
 import { useAppStore } from '../store/appStore';
+import { Story } from '../types';
 
 interface MessageWithStories extends ChatMessage {
   stories?: StoryDraft[];
@@ -23,10 +24,13 @@ export default function BrainstormPage() {
   const [selectedStories, setSelectedStories] = useState<Set<string>>(new Set());
   const [addingToPrd, setAddingToPrd] = useState(false);
   const [addResult, setAddResult] = useState<string | null>(null);
+  const [prdExpanded, setPrdExpanded] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const currentProject = useAppStore((s) => s.currentProject);
   const fetchPrd = useAppStore((s) => s.fetchPrd);
+  const prd = useAppStore((s) => s.prd);
+  const existingStories = prd?.stories ?? [];
 
   // Persist messages to localStorage whenever they change
   useEffect(() => {
@@ -73,7 +77,14 @@ export default function BrainstormPage() {
 
     try {
       const apiMessages: ChatMessage[] = nextMessages.map(({ role, content }) => ({ role, content }));
-      const result = await apiBrainstorm.chat(apiMessages);
+      const storiesToPass = existingStories.map((s: Story) => ({
+        id: s.id,
+        title: s.title,
+        description: s.description,
+        acceptanceCriteria: s.acceptanceCriteria,
+        status: s.status,
+      }));
+      const result = await apiBrainstorm.chat(apiMessages, storiesToPass.length > 0 ? storiesToPass : undefined);
 
       const assistantMsg: MessageWithStories = {
         role: 'assistant',
@@ -124,19 +135,29 @@ export default function BrainstormPage() {
     setAddingToPrd(true);
     setAddResult(null);
 
-    const toAdd = allStories.filter(({ key }) => selectedStories.has(key));
+    const toProcess = allStories.filter(({ key }) => selectedStories.has(key));
     let addedCount = 0;
+    let updatedCount = 0;
     const errors: string[] = [];
 
-    for (const { story } of toAdd) {
+    for (const { story } of toProcess) {
       try {
-        await apiPrd.addStory({
-          title: story.title,
-          description: story.description,
-          acceptanceCriteria: story.acceptanceCriteria,
-          priority: 0,
-        });
-        addedCount++;
+        if (story.storyId) {
+          await apiPrd.updateStory(story.storyId, {
+            title: story.title,
+            description: story.description,
+            acceptanceCriteria: story.acceptanceCriteria,
+          });
+          updatedCount++;
+        } else {
+          await apiPrd.addStory({
+            title: story.title,
+            description: story.description,
+            acceptanceCriteria: story.acceptanceCriteria,
+            priority: 0,
+          });
+          addedCount++;
+        }
       } catch (e) {
         errors.push(story.title);
       }
@@ -146,10 +167,13 @@ export default function BrainstormPage() {
     setAddingToPrd(false);
     setSelectedStories(new Set());
 
+    const parts: string[] = [];
+    if (addedCount > 0) parts.push(`新增 ${addedCount} 个`);
+    if (updatedCount > 0) parts.push(`更新 ${updatedCount} 个`);
     if (errors.length === 0) {
-      setAddResult(`✅ 已成功添加 ${addedCount} 个 Story 到 PRD`);
+      setAddResult(`✅ 已成功${parts.join('、')} Story`);
     } else {
-      setAddResult(`✅ 添加了 ${addedCount} 个，❌ 失败 ${errors.length} 个：${errors.join('、')}`);
+      setAddResult(`✅ ${parts.join('、')}，❌ 失败 ${errors.length} 个：${errors.join('、')}`);
     }
   }
 
@@ -235,6 +259,121 @@ export default function BrainstormPage() {
         )}
       </div>
 
+      {/* Existing PRD stories panel */}
+      {existingStories.length > 0 && (
+        <div
+          style={{
+            borderBottom: '1px solid rgba(255,255,255,0.08)',
+            background: 'rgba(255,255,255,0.02)',
+            flexShrink: 0,
+          }}
+        >
+          <button
+            onClick={() => setPrdExpanded((v) => !v)}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '8px 24px',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: 'rgba(255,255,255,0.5)',
+              fontSize: '11px',
+              letterSpacing: '-0.1px',
+              textAlign: 'left',
+            }}
+          >
+            <span style={{ transition: 'transform 0.2s', transform: prdExpanded ? 'rotate(90deg)' : 'rotate(0deg)', display: 'inline-block' }}>▶</span>
+            当前 PRD（{existingStories.length} 个 Story）— 点击"讨论修改"可让 AI 帮你修改
+          </button>
+          {prdExpanded && (
+            <div
+              style={{
+                padding: '0 24px 12px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px',
+                maxHeight: '220px',
+                overflowY: 'auto',
+              }}
+            >
+              {existingStories.map((story: Story) => (
+                <div
+                  key={story.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '12px',
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    background: 'rgba(255,255,255,0.04)',
+                    border: '1px solid rgba(255,255,255,0.07)',
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.8)', fontWeight: 500 }}>
+                      {story.title}
+                    </span>
+                    <span
+                      style={{
+                        marginLeft: '8px',
+                        fontSize: '10px',
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        background: story.status === 'completed'
+                          ? 'rgba(48,209,88,0.15)'
+                          : story.status === 'in_progress'
+                          ? 'rgba(255,159,10,0.15)'
+                          : 'rgba(255,255,255,0.08)',
+                        color: story.status === 'completed'
+                          ? '#30d158'
+                          : story.status === 'in_progress'
+                          ? '#ff9f0a'
+                          : 'rgba(255,255,255,0.4)',
+                      }}
+                    >
+                      {story.status === 'completed' ? '已完成' : story.status === 'in_progress' ? '执行中' : '待处理'}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const prompt = `我想修改这个已有的 Story「${story.title}」，它的描述是：${story.description}`;
+                      setInput(prompt);
+                      textareaRef.current?.focus();
+                    }}
+                    style={{
+                      flexShrink: 0,
+                      padding: '3px 10px',
+                      borderRadius: '5px',
+                      background: 'none',
+                      border: '1px solid rgba(255,255,255,0.15)',
+                      color: 'rgba(255,255,255,0.5)',
+                      fontSize: '11px',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s',
+                      whiteSpace: 'nowrap',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.color = '#fff';
+                      e.currentTarget.style.borderColor = 'rgba(255,255,255,0.4)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.color = 'rgba(255,255,255,0.5)';
+                      e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)';
+                    }}
+                  >
+                    讨论修改
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Messages area */}
       <div
         style={{
@@ -307,7 +446,7 @@ export default function BrainstormPage() {
                     marginBottom: '2px',
                   }}
                 >
-                  AI 建议的 Story 列表（点击选择/取消）
+                  AI 建议的 Story 列表（点击选择/取消，蓝色为新增，橙色为修改已有）
                 </div>
                 {msg.stories.map((story, sIdx) => {
                   const key = `${idx}-${sIdx}`;
@@ -318,11 +457,13 @@ export default function BrainstormPage() {
                       onClick={() => toggleStory(key)}
                       style={{
                         border: isSelected
-                          ? '1px solid rgba(26,108,245,0.7)'
+                          ? story.storyId ? '1px solid rgba(255,159,10,0.7)' : '1px solid rgba(26,108,245,0.7)'
                           : '1px solid rgba(255,255,255,0.1)',
                         borderRadius: '10px',
                         padding: '12px 14px',
-                        background: isSelected ? 'rgba(26,108,245,0.12)' : 'rgba(255,255,255,0.04)',
+                        background: isSelected
+                          ? story.storyId ? 'rgba(255,159,10,0.08)' : 'rgba(26,108,245,0.12)'
+                          : 'rgba(255,255,255,0.04)',
                         cursor: 'pointer',
                         transition: 'all 0.15s',
                         maxWidth: '640px',
@@ -366,9 +507,25 @@ export default function BrainstormPage() {
                               color: '#fff',
                               marginBottom: '4px',
                               letterSpacing: '-0.2px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
                             }}
                           >
                             {story.title}
+                            {story.storyId && (
+                              <span style={{
+                                fontSize: '10px',
+                                fontWeight: 500,
+                                padding: '1px 6px',
+                                borderRadius: '4px',
+                                background: 'rgba(255,159,10,0.18)',
+                                color: '#ff9f0a',
+                                letterSpacing: 0,
+                              }}>
+                                修改已有
+                              </span>
+                            )}
                           </div>
                           <div
                             style={{
@@ -470,6 +627,9 @@ export default function BrainstormPage() {
         >
           <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>
             已选择 <strong style={{ color: '#fff' }}>{selectedCount}</strong> 个 Story
+            {allStories.filter(({ key }) => selectedStories.has(key)).some(({ story }) => story.storyId) && (
+              <span style={{ marginLeft: '6px', color: '#ff9f0a' }}>（含修改项）</span>
+            )}
           </span>
           <button
             onClick={addSelectedToPrd}

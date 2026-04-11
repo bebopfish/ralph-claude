@@ -24,6 +24,12 @@ export async function writeConfig(config: RalphConfig): Promise<void> {
   await fs.writeFile(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
 }
 
+export async function clearCurrentProject(): Promise<void> {
+  const config = await readConfig();
+  config.currentProject = null;
+  await writeConfig(config);
+}
+
 export async function setCurrentProject(projectPath: string): Promise<void> {
   const config = await readConfig();
   config.currentProject = projectPath;

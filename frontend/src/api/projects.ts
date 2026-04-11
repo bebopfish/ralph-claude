@@ -11,6 +11,10 @@ export const apiProjects = {
     return data;
   },
 
+  closeCurrent: async () => {
+    await client.delete('/projects/current');
+  },
+
   getRecent: async () => {
     const { data } = await client.get<{ projects: string[] }>('/projects/recent');
     return data;

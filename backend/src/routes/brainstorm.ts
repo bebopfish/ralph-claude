@@ -14,6 +14,7 @@ const SYSTEM_PROMPT = `你是一个经验丰富的敏捷开发顾问，擅长帮
 5. 当用户确认 Story 列表后，输出结构化的 JSON 数据
 
 每个 Story 格式：
+- storyId：可选，仅在修改已有 Story 时填写，填写被修改 Story 的 id（如 "story-1234"）
 - title：简洁的标题（中文，15字以内）
 - description：用用户故事格式描述（"作为[角色]，我想要[功能]，以便[价值]"）
 - acceptanceCriteria：具体可验证的验收标准列表（3-5条）
@@ -23,6 +24,7 @@ const SYSTEM_PROMPT = `你是一个经验丰富的敏捷开发顾问，擅长帮
 <stories>
 [
   {
+    "storyId": "story-1234",
     "title": "Story标题",
     "description": "作为用户，我想要...",
     "acceptanceCriteria": ["条件1", "条件2", "条件3"]
@@ -30,12 +32,23 @@ const SYSTEM_PROMPT = `你是一个经验丰富的敏捷开发顾问，擅长帮
 ]
 </stories>
 
+新增 Story 时省略 storyId 字段。修改已有 Story 时必须填写对应的 storyId。
+
 **严格的 JSON 格式要求**：
 - 字符串值内部绝对不能出现英文双引号（"）
 - 如需引用状态名称（如「待分配」「执行中」），请使用中文书名号「」，而非英文引号
 - 不要在 JSON 字符串内用任何引号来强调词语`;
 
+interface ExistingStory {
+  id: string;
+  title: string;
+  description: string;
+  acceptanceCriteria: string[];
+  status: string;
+}
+
 interface StoryDraft {
+  storyId?: string;
   title: string;
   description: string;
   acceptanceCriteria: string[];
@@ -62,6 +75,9 @@ function extractStoriesLenient(text: string): StoryDraft[] | null {
   }
 
   for (const block of blocks) {
+    // storyId: optional field
+    const storyIdM = /"storyId"\s*:\s*"([^"]+)"/.exec(block);
+
     // Title: no inner quotes expected
     const titleM = /"title"\s*:\s*"([^"]+)"/.exec(block);
     if (!titleM) continue;
@@ -98,7 +114,12 @@ function extractStoriesLenient(text: string): StoryDraft[] | null {
       }
     }
 
-    stories.push({ title: titleM[1], description, acceptanceCriteria });
+    stories.push({
+      ...(storyIdM ? { storyId: storyIdM[1] } : {}),
+      title: titleM[1],
+      description,
+      acceptanceCriteria,
+    });
   }
 
   return stories.length > 0 ? stories : null;
@@ -120,13 +141,39 @@ function parseStories(jsonStr: string): StoryDraft[] | null {
   return extractStoriesLenient(fixed);
 }
 
-function buildPrompt(messages: { role: 'user' | 'assistant'; content: string }[]): string {
+function buildExistingStoriesContext(stories: ExistingStory[]): string {
+  if (!stories || stories.length === 0) return '';
+
+  const list = stories
+    .map((s, i) => {
+      const ac = s.acceptanceCriteria.map((c) => `    - ${c}`).join('\n');
+      return `${i + 1}. [id: ${s.id}] [状态: ${s.status}] ${s.title}\n   ${s.description}\n   验收标准：\n${ac}`;
+    })
+    .join('\n\n');
+
+  return `
+<existing_prd>
+当前 PRD 已有以下 ${stories.length} 个 Story，请在此基础上继续讨论。修改已有 Story 时，输出中必须包含对应的 storyId 字段：
+
+${list}
+</existing_prd>
+`;
+}
+
+function buildPrompt(
+  messages: { role: 'user' | 'assistant'; content: string }[],
+  existingStories?: ExistingStory[],
+): string {
   const history = messages
     .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
     .join('\n\n');
 
-  return `${SYSTEM_PROMPT}
+  const existingCtx = existingStories && existingStories.length > 0
+    ? buildExistingStoriesContext(existingStories)
+    : '';
 
+  return `${SYSTEM_PROMPT}
+${existingCtx}
 <conversation>
 ${history}
 </conversation>
@@ -135,8 +182,9 @@ ${history}
 }
 
 router.post('/chat', async (req: Request, res: Response) => {
-  const { messages } = req.body as {
+  const { messages, existingStories } = req.body as {
     messages: { role: 'user' | 'assistant'; content: string }[];
+    existingStories?: ExistingStory[];
   };
 
   if (!messages || messages.length === 0) {
@@ -144,7 +192,7 @@ router.post('/chat', async (req: Request, res: Response) => {
     return;
   }
 
-  const prompt = buildPrompt(messages);
+  const prompt = buildPrompt(messages, existingStories);
 
   try {
     const content = await new Promise<string>((resolve, reject) => {

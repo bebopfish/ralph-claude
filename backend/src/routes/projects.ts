@@ -5,6 +5,7 @@ import { execFile } from 'child_process';
 import {
   getCurrentProject,
   setCurrentProject,
+  clearCurrentProject,
   getRecentProjects,
 } from '../services/configService';
 
@@ -28,6 +29,11 @@ router.post('/current', async (req: Request, res: Response) => {
   } catch {
     res.status(400).json({ error: 'Path does not exist or is not accessible' });
   }
+});
+
+router.delete('/current', async (_req: Request, res: Response) => {
+  await clearCurrentProject();
+  res.json({ ok: true });
 });
 
 router.get('/recent', async (_req: Request, res: Response) => {

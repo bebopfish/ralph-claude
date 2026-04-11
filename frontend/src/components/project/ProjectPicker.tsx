@@ -303,7 +303,7 @@ export default function ProjectPicker({ onClose }: Props) {
               >
                 <button
                   onClick={() => {
-                    const parent = browsePath.replace(/[/\\][^/\\]+$/, '') || browsePath;
+                    const parent = browsePath.replace(/[/\\][^/\\]+$/, '') || '/';
                     if (parent !== browsePath) browse(parent);
                   }}
                   style={{

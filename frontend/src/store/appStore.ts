@@ -5,7 +5,7 @@ import { apiPrd } from '../api/prd';
 interface AppState {
   // Project
   currentProject: string | null;
-  setCurrentProject: (path: string) => void;
+  setCurrentProject: (path: string | null) => void;
 
   // PRD
   prd: PrdFile | null;
