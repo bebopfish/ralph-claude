@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { apiProjects } from '../../api/projects';
 import { useAppStore } from '../../store/appStore';
 
@@ -13,6 +13,10 @@ export default function ProjectPicker({ onClose }: Props) {
   const [dirs, setDirs] = useState<{ name: string; path: string }[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [mkdirError, setMkdirError] = useState('');
+  const newFolderInputRef = useRef<HTMLInputElement>(null);
 
   const { setCurrentProject, fetchPrd } = useAppStore.getState();
 
@@ -23,6 +27,12 @@ export default function ProjectPicker({ onClose }: Props) {
       setDirs(dirs);
     });
   }, []);
+
+  useEffect(() => {
+    if (creatingFolder) {
+      setTimeout(() => newFolderInputRef.current?.focus(), 50);
+    }
+  }, [creatingFolder]);
 
   const browse = async (path?: string) => {
     try {
@@ -42,7 +52,7 @@ export default function ProjectPicker({ onClose }: Props) {
       setCurrentProject(path);
       await fetchPrd();
       onClose();
-    } catch (e) {
+    } catch {
       setError('无法访问该目录，请检查路径是否正确');
     } finally {
       setLoading(false);
@@ -52,6 +62,27 @@ export default function ProjectPicker({ onClose }: Props) {
   const handleManualInput = async () => {
     if (!inputPath.trim()) return;
     await selectProject(inputPath.trim());
+  };
+
+  const handleMkdir = async () => {
+    const name = newFolderName.trim();
+    if (!name) return;
+    setMkdirError('');
+    try {
+      const { path: newPath } = await apiProjects.mkdir(browsePath, name);
+      setCreatingFolder(false);
+      setNewFolderName('');
+      await browse(newPath);
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      setMkdirError(msg ?? '创建失败');
+    }
+  };
+
+  const cancelMkdir = () => {
+    setCreatingFolder(false);
+    setNewFolderName('');
+    setMkdirError('');
   };
 
   const labelStyle = {
@@ -179,7 +210,82 @@ export default function ProjectPicker({ onClose }: Props) {
 
           {/* Directory browser */}
           <div>
-            <label style={labelStyle}>浏览目录</label>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+              <label style={{ ...labelStyle, marginBottom: 0 }}>浏览目录</label>
+              {!creatingFolder && (
+                <button
+                  onClick={() => setCreatingFolder(true)}
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    color: '#2997ff', fontSize: '12px',
+                    fontFamily: 'var(--font-text)', letterSpacing: '-0.12px',
+                    padding: '0', display: 'flex', alignItems: 'center', gap: '4px',
+                    transition: 'opacity 0.15s',
+                  }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '0.7'; }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '1'; }}
+                >
+                  + 新建文件夹
+                </button>
+              )}
+            </div>
+
+            {/* Inline new folder input */}
+            {creatingFolder && (
+              <div style={{ marginBottom: '8px' }}>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <input
+                    ref={newFolderInputRef}
+                    type="text"
+                    value={newFolderName}
+                    onChange={(e) => { setNewFolderName(e.target.value); setMkdirError(''); }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleMkdir();
+                      if (e.key === 'Escape') cancelMkdir();
+                    }}
+                    placeholder="新文件夹名称"
+                    style={{
+                      flex: 1, background: '#000',
+                      border: '1px solid #0071e3', borderRadius: '8px',
+                      padding: '7px 12px', color: '#fff',
+                      fontFamily: 'var(--font-text)', fontSize: '13px', letterSpacing: '-0.12px',
+                      outline: 'none',
+                    }}
+                  />
+                  <button
+                    onClick={handleMkdir}
+                    disabled={!newFolderName.trim()}
+                    style={{
+                      padding: '7px 14px',
+                      background: newFolderName.trim() ? '#0071e3' : 'rgba(0,113,227,0.3)',
+                      border: 'none', borderRadius: '8px',
+                      color: '#fff', fontSize: '13px', fontFamily: 'var(--font-text)',
+                      cursor: newFolderName.trim() ? 'pointer' : 'not-allowed',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    创建
+                  </button>
+                  <button
+                    onClick={cancelMkdir}
+                    style={{
+                      padding: '7px 12px',
+                      background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '8px',
+                      color: 'rgba(255,255,255,0.56)', fontSize: '13px', fontFamily: 'var(--font-text)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    取消
+                  </button>
+                </div>
+                {mkdirError && (
+                  <p style={{ color: '#ff453a', fontSize: '12px', marginTop: '5px', letterSpacing: '-0.12px' }}>
+                    {mkdirError}
+                  </p>
+                )}
+              </div>
+            )}
+
             <div
               style={{
                 background: '#000', borderRadius: '8px',

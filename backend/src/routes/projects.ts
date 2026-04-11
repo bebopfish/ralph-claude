@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import fs from 'fs/promises';
 import path from 'path';
+import { execFile } from 'child_process';
 import {
   getCurrentProject,
   setCurrentProject,
@@ -50,6 +51,31 @@ router.post('/browse', async (req: Request, res: Response) => {
   } catch {
     res.status(400).json({ error: 'Cannot read directory' });
   }
+});
+
+router.post('/mkdir', async (req: Request, res: Response) => {
+  const { path: parentPath, name } = req.body as { path: string; name: string };
+  if (!parentPath || !name) {
+    res.status(400).json({ error: 'path and name are required' });
+    return;
+  }
+  if (/[/\\<>:"|?*]/.test(name) || name === '.' || name === '..') {
+    res.status(400).json({ error: 'Invalid directory name' });
+    return;
+  }
+  const newPath = path.join(parentPath, name);
+  try {
+    await fs.mkdir(newPath);
+  } catch (e: unknown) {
+    const code = (e as NodeJS.ErrnoException).code;
+    res.status(400).json({ error: code === 'EEXIST' ? '目录已存在' : '创建失败' });
+    return;
+  }
+  // Auto-initialize a git repository so Ralph can commit immediately
+  await new Promise<void>((resolve) => {
+    execFile('git', ['init'], { cwd: newPath }, () => resolve());
+  });
+  res.json({ path: newPath });
 });
 
 export default router;

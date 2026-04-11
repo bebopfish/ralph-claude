@@ -23,4 +23,9 @@ export const apiProjects = {
     );
     return data;
   },
+
+  mkdir: async (parentPath: string, name: string) => {
+    const { data } = await client.post<{ path: string }>('/projects/mkdir', { path: parentPath, name });
+    return data;
+  },
 };
