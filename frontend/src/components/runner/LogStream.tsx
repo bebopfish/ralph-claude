@@ -43,6 +43,7 @@ export default function LogStream() {
         background: 'var(--apple-surface-1)',
         borderRadius: '12px',
         boxShadow: 'var(--apple-shadow-card)',
+        border: '1px solid rgba(255,255,255,0.1)',
         overflow: 'hidden',
       }}
     >
@@ -50,7 +51,7 @@ export default function LogStream() {
         style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '12px 16px',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          borderBottom: '1px solid rgba(255,255,255,0.1)',
         }}
       >
         <h2

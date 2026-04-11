@@ -41,6 +41,7 @@ export default function GitLog({ commits }: Props) {
             background: 'var(--apple-surface-1)',
             borderRadius: '10px',
             boxShadow: 'var(--apple-shadow-card)',
+            border: '1px solid rgba(255,255,255,0.1)',
             padding: '12px 16px',
             transition: 'background 0.15s',
           }}
