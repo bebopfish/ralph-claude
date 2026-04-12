@@ -7,11 +7,13 @@ interface Props {
 }
 
 export default function ProjectPicker({ onClose }: Props) {
-  const [inputPath, setInputPath] = useState('');
   const [recent, setRecent] = useState<string[]>([]);
   const [browsePath, setBrowsePath] = useState('');
-  const [dirs, setDirs] = useState<{ name: string; path: string }[]>([]);
-  const [error, setError] = useState('');
+  const [pathInput, setPathInput] = useState('');
+  const [browsePathIsGit, setBrowsePathIsGit] = useState(false);
+  const [dirs, setDirs] = useState<{ name: string; path: string; isGitRepo: boolean }[]>([]);
+  const [browseError, setBrowseError] = useState('');
+  const [selectError, setSelectError] = useState('');
   const [loading, setLoading] = useState(false);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
@@ -22,8 +24,10 @@ export default function ProjectPicker({ onClose }: Props) {
 
   useEffect(() => {
     apiProjects.getRecent().then(({ projects }) => setRecent(projects));
-    apiProjects.browse().then(({ path, dirs }) => {
+    apiProjects.browse().then(({ path, isGitRepo, dirs }) => {
       setBrowsePath(path);
+      setPathInput(path);
+      setBrowsePathIsGit(isGitRepo);
       setDirs(dirs);
     });
   }, []);
@@ -34,34 +38,38 @@ export default function ProjectPicker({ onClose }: Props) {
     }
   }, [creatingFolder]);
 
+  // Keep pathInput in sync when browsePath changes via clicking dirs
+  useEffect(() => {
+    setPathInput(browsePath);
+  }, [browsePath]);
+
   const browse = async (path?: string) => {
+    setBrowseError('');
     try {
       const result = await apiProjects.browse(path);
       setBrowsePath(result.path);
+      setBrowsePathIsGit(result.isGitRepo);
       setDirs(result.dirs);
     } catch {
-      // ignore
+      setBrowseError('无法访问该路径');
+      setPathInput(browsePath); // reset on error
     }
   };
 
   const selectProject = async (path: string) => {
     setLoading(true);
-    setError('');
+    setSelectError('');
     try {
       await apiProjects.setCurrent(path);
       setCurrentProject(path);
       await fetchPrd();
       onClose();
-    } catch {
-      setError('无法访问该目录，请检查路径是否正确');
+    } catch (e: unknown) {
+      const errCode = (e as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      setSelectError(errCode === 'NOT_GIT_REPO' ? '该目录不是 Git 仓库' : '无法访问该目录，请检查路径是否正确');
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleManualInput = async () => {
-    if (!inputPath.trim()) return;
-    await selectProject(inputPath.trim());
   };
 
   const handleMkdir = async () => {
@@ -140,69 +148,67 @@ export default function ProjectPicker({ onClose }: Props) {
         </div>
 
         <div style={{ padding: '20px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          {/* Manual input */}
-          <div>
-            <label style={labelStyle}>输入路径</label>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <input
-                type="text"
-                value={inputPath}
-                onChange={(e) => setInputPath(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleManualInput()}
-                placeholder="/path/to/your/project"
-                style={{
-                  flex: 1, background: '#000',
-                  border: '1px solid rgba(255,255,255,0.14)', borderRadius: '8px',
-                  padding: '8px 12px', color: '#fff',
-                  fontFamily: 'var(--font-text)', fontSize: '14px', letterSpacing: '-0.224px',
-                }}
-                onFocus={(e) => { (e.currentTarget as HTMLInputElement).style.borderColor = '#0071e3'; (e.currentTarget as HTMLInputElement).style.outline = 'none'; }}
-                onBlur={(e) => { (e.currentTarget as HTMLInputElement).style.borderColor = 'rgba(255,255,255,0.14)'; }}
-              />
-              <button
-                onClick={handleManualInput}
-                disabled={loading}
-                style={{
-                  padding: '8px 15px', background: loading ? 'rgba(0,113,227,0.4)' : '#0071e3',
-                  border: 'none', borderRadius: '8px',
-                  color: '#fff', fontSize: '14px', fontFamily: 'var(--font-text)',
-                  cursor: loading ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap',
-                }}
-              >
-                确认
-              </button>
-            </div>
-            {error && (
-              <p style={{ color: '#ff453a', fontSize: '12px', marginTop: '6px', letterSpacing: '-0.12px' }}>
-                {error}
-              </p>
-            )}
-          </div>
-
           {/* Recent projects */}
           {recent.length > 0 && (
             <div>
               <label style={labelStyle}>最近打开</label>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 {recent.map((p) => (
-                  <button
+                  <div
                     key={p}
-                    onClick={() => selectProject(p)}
-                    style={{
-                      background: 'rgba(255,255,255,0.04)', border: 'none',
-                      borderRadius: '8px', padding: '10px 12px',
-                      color: 'rgba(255,255,255,0.8)', fontSize: '13px',
-                      fontFamily: 'var(--font-text)', letterSpacing: '-0.12px',
-                      textAlign: 'left', cursor: 'pointer',
-                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                      transition: 'background 0.15s',
+                    style={{ position: 'relative', display: 'flex', alignItems: 'center' }}
+                    onMouseEnter={(e) => {
+                      const btn = e.currentTarget.querySelector<HTMLButtonElement>('.delete-btn');
+                      if (btn) btn.style.opacity = '1';
+                      const main = e.currentTarget.querySelector<HTMLButtonElement>('.main-btn');
+                      if (main) main.style.background = 'rgba(255,255,255,0.08)';
                     }}
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.08)'; }}
-                    onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.04)'; }}
-                    title={p}
+                    onMouseLeave={(e) => {
+                      const btn = e.currentTarget.querySelector<HTMLButtonElement>('.delete-btn');
+                      if (btn) btn.style.opacity = '0';
+                      const main = e.currentTarget.querySelector<HTMLButtonElement>('.main-btn');
+                      if (main) main.style.background = 'rgba(255,255,255,0.04)';
+                    }}
                   >
-                    📁 {p}
-                  </button>
+                    <button
+                      className="main-btn"
+                      onClick={() => selectProject(p)}
+                      style={{
+                        flex: 1, background: 'rgba(255,255,255,0.04)', border: 'none',
+                        borderRadius: '8px', padding: '10px 36px 10px 12px',
+                        color: 'rgba(255,255,255,0.8)', fontSize: '13px',
+                        fontFamily: 'var(--font-text)', letterSpacing: '-0.12px',
+                        textAlign: 'left', cursor: 'pointer',
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        transition: 'background 0.15s',
+                      }}
+                      title={p}
+                    >
+                      📁 {p}
+                    </button>
+                    <button
+                      className="delete-btn"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        await apiProjects.removeRecent(p);
+                        setRecent((prev) => prev.filter((r) => r !== p));
+                      }}
+                      style={{
+                        position: 'absolute', right: '8px',
+                        background: 'none', border: 'none',
+                        cursor: 'pointer', padding: '2px 4px',
+                        color: 'rgba(255,255,255,0.4)', fontSize: '14px',
+                        lineHeight: 1, opacity: 0,
+                        transition: 'opacity 0.15s, color 0.15s',
+                        borderRadius: '4px',
+                      }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#ff453a'; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'rgba(255,255,255,0.4)'; }}
+                      title="删除记录"
+                    >
+                      ×
+                    </button>
+                  </div>
                 ))}
               </div>
             </div>
@@ -290,14 +296,14 @@ export default function ProjectPicker({ onClose }: Props) {
               style={{
                 background: '#000', borderRadius: '8px',
                 border: '1px solid rgba(255,255,255,0.08)',
-                maxHeight: '200px', overflowY: 'auto',
+                maxHeight: '240px', overflowY: 'auto',
               }}
             >
-              {/* Current path row */}
+              {/* Current path row — editable address bar */}
               <div
                 style={{
                   display: 'flex', alignItems: 'center', gap: '6px',
-                  padding: '8px 10px',
+                  padding: '6px 8px',
                   borderBottom: '1px solid rgba(255,255,255,0.06)',
                 }}
               >
@@ -317,31 +323,50 @@ export default function ProjectPicker({ onClose }: Props) {
                 >
                   ←
                 </button>
-                <span
-                  style={{
-                    flex: 1, fontSize: '11px', color: 'rgba(255,255,255,0.32)',
-                    letterSpacing: '-0.12px', overflow: 'hidden', textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap', fontFamily: 'monospace',
+                <input
+                  type="text"
+                  value={pathInput}
+                  onChange={(e) => { setPathInput(e.target.value); setBrowseError(''); }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') browse(pathInput);
+                    if (e.key === 'Escape') setPathInput(browsePath);
                   }}
-                  title={browsePath}
-                >
-                  {browsePath}
-                </span>
+                  onBlur={() => setPathInput(browsePath)}
+                  style={{
+                    flex: 1, background: 'none', border: 'none', outline: 'none',
+                    fontSize: '11px', color: 'rgba(255,255,255,0.5)',
+                    letterSpacing: '-0.12px', fontFamily: 'monospace',
+                    padding: '4px 2px', minWidth: 0,
+                  }}
+                  onFocus={(e) => {
+                    (e.currentTarget as HTMLInputElement).style.color = '#fff';
+                    (e.currentTarget as HTMLInputElement).select();
+                  }}
+                  title="输入路径后按 Enter 跳转"
+                />
                 <button
-                  onClick={() => selectProject(browsePath)}
-                  disabled={loading}
+                  onClick={() => browsePathIsGit ? selectProject(browsePath) : undefined}
+                  disabled={loading || !browsePathIsGit}
+                  title={browsePathIsGit ? undefined : '非 Git 仓库'}
                   style={{
                     flexShrink: 0, padding: '3px 10px',
-                    background: '#0071e3', border: 'none',
-                    borderRadius: '980px', color: '#fff',
+                    background: browsePathIsGit ? '#0071e3' : 'rgba(255,255,255,0.1)',
+                    border: 'none', borderRadius: '980px', color: '#fff',
                     fontSize: '11px', fontFamily: 'var(--font-text)',
-                    cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1,
+                    cursor: (loading || !browsePathIsGit) ? 'not-allowed' : 'pointer',
+                    opacity: loading ? 0.5 : 1,
                     letterSpacing: '-0.12px',
                   }}
                 >
                   选择此目录
                 </button>
               </div>
+
+              {browseError && (
+                <p style={{ padding: '6px 12px', color: '#ff453a', fontSize: '11px', letterSpacing: '-0.12px' }}>
+                  {browseError}
+                </p>
+              )}
 
               {dirs.map((d) => (
                 <div
@@ -361,23 +386,34 @@ export default function ProjectPicker({ onClose }: Props) {
                     onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
                   >
                     📁 {d.name}
+                    {d.isGitRepo && (
+                      <span style={{
+                        marginLeft: '6px', fontSize: '10px',
+                        color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace',
+                        verticalAlign: 'middle',
+                      }}>git</span>
+                    )}
                   </button>
                   <button
-                    onClick={() => selectProject(d.path)}
+                    onClick={() => d.isGitRepo ? selectProject(d.path) : undefined}
+                    disabled={!d.isGitRepo}
+                    title={d.isGitRepo ? undefined : '非 Git 仓库'}
                     style={{
                       background: 'none', border: 'none', padding: '8px 12px',
-                      color: '#2997ff', fontSize: '12px', fontFamily: 'var(--font-text)',
-                      letterSpacing: '-0.12px', cursor: 'pointer', flexShrink: 0,
-                      transition: 'opacity 0.15s',
+                      color: d.isGitRepo ? '#2997ff' : 'rgba(255,255,255,0.2)',
+                      fontSize: '12px', fontFamily: 'var(--font-text)',
+                      letterSpacing: '-0.12px',
+                      cursor: d.isGitRepo ? 'pointer' : 'not-allowed',
+                      flexShrink: 0, transition: 'opacity 0.15s',
                     }}
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '0.7'; }}
+                    onMouseEnter={(e) => { if (d.isGitRepo) (e.currentTarget as HTMLButtonElement).style.opacity = '0.7'; }}
                     onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '1'; }}
                   >
                     选择
                   </button>
                 </div>
               ))}
-              {dirs.length === 0 && (
+              {dirs.length === 0 && !browseError && (
                 <p
                   style={{
                     padding: '10px 12px', fontSize: '12px',
@@ -388,6 +424,11 @@ export default function ProjectPicker({ onClose }: Props) {
                 </p>
               )}
             </div>
+            {selectError && (
+              <p style={{ color: '#ff453a', fontSize: '12px', marginTop: '6px', letterSpacing: '-0.12px' }}>
+                {selectError}
+              </p>
+            )}
           </div>
         </div>
       </div>

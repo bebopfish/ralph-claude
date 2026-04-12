@@ -70,6 +70,7 @@ export async function updateStoryStatus(
   if (status === 'completed') {
     updates.completedAt = new Date().toISOString();
     if (commitHash) updates.commitHash = commitHash;
+    updates.previousCommitHash = null; // clear after successful re-implementation
   }
   await updateStory(projectPath, id, updates);
 }

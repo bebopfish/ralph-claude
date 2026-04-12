@@ -6,6 +6,7 @@ interface StoryInput {
   description: string;
   acceptanceCriteria: string[];
   priority: number;
+  resetStatus?: boolean;
 }
 
 interface Props {
@@ -23,6 +24,8 @@ export default function StoryEditor({ initial, onSave, onCancel }: Props) {
   const [priority, setPriority] = useState(initial?.priority ?? 1);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const needsReset = initial?.status === 'completed' || initial?.status === 'in_progress';
+  const [resetStatus, setResetStatus] = useState(needsReset);
 
   const addCriterion = () => setCriteria([...criteria, '']);
   const removeCriterion = (i: number) => setCriteria(criteria.filter((_, idx) => idx !== i));
@@ -43,6 +46,7 @@ export default function StoryEditor({ initial, onSave, onCancel }: Props) {
         description: description.trim(),
         acceptanceCriteria: criteria.filter((c) => c.trim()),
         priority,
+        resetStatus: needsReset ? resetStatus : undefined,
       });
     } catch {
       setError('保存失败');
@@ -143,6 +147,30 @@ export default function StoryEditor({ initial, onSave, onCancel }: Props) {
       </div>
 
       {error && <p style={{ color: '#ff453a', fontSize: '14px', letterSpacing: '-0.224px' }}>{error}</p>}
+
+      {needsReset && (
+        <label
+          style={{
+            display: 'flex', alignItems: 'center', gap: '8px',
+            padding: '10px 12px',
+            borderRadius: '8px',
+            background: resetStatus ? 'rgba(255,159,10,0.08)' : 'rgba(255,255,255,0.04)',
+            border: `1px solid ${resetStatus ? 'rgba(255,159,10,0.3)' : 'rgba(255,255,255,0.1)'}`,
+            cursor: 'pointer',
+            transition: 'all 0.15s',
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={resetStatus}
+            onChange={(e) => setResetStatus(e.target.checked)}
+            style={{ width: '14px', height: '14px', cursor: 'pointer', accentColor: '#ff9f0a' }}
+          />
+          <span style={{ fontSize: '13px', color: resetStatus ? '#ff9f0a' : 'rgba(255,255,255,0.4)', letterSpacing: '-0.12px' }}>
+            重置为待处理，让 Ralph 重新实现
+          </span>
+        </label>
+      )}
 
       <div style={{ display: 'flex', gap: '10px', paddingTop: '4px' }}>
         <button

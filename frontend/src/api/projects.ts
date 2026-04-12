@@ -20,8 +20,12 @@ export const apiProjects = {
     return data;
   },
 
+  removeRecent: async (path: string) => {
+    await client.delete('/projects/recent', { data: { path } });
+  },
+
   browse: async (path?: string) => {
-    const { data } = await client.post<{ path: string; dirs: { name: string; path: string }[] }>(
+    const { data } = await client.post<{ path: string; isGitRepo: boolean; dirs: { name: string; path: string; isGitRepo: boolean }[] }>(
       '/projects/browse',
       { path }
     );

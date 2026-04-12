@@ -45,9 +45,22 @@ export default function PrdPage() {
     description: string;
     acceptanceCriteria: string[];
     priority: number;
+    resetStatus?: boolean;
   }) => {
     if (!editingStory) return;
-    await apiPrd.updateStory(editingStory.id, data);
+    const updates: Partial<Story> = {
+      title: data.title,
+      description: data.description,
+      acceptanceCriteria: data.acceptanceCriteria,
+      priority: data.priority,
+    };
+    if (data.resetStatus) {
+      updates.status = 'pending';
+      updates.completedAt = undefined;
+      updates.previousCommitHash = editingStory.commitHash ?? undefined;
+      updates.commitHash = null;
+    }
+    await apiPrd.updateStory(editingStory.id, updates);
     await fetchPrd();
     setEditingStory(null);
   };

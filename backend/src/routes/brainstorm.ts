@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { spawn } from 'child_process';
 import { tmpdir } from 'os';
+import { readProgress } from '../services/progressService';
+import { readProjectContext, writeProjectContext } from '../services/projectContextService';
 
 const router = Router();
 
@@ -37,7 +39,31 @@ const SYSTEM_PROMPT = `你是一个经验丰富的敏捷开发顾问，擅长帮
 **严格的 JSON 格式要求**：
 - 字符串值内部绝对不能出现英文双引号（"）
 - 如需引用状态名称（如「待分配」「执行中」），请使用中文书名号「」，而非英文引号
-- 不要在 JSON 字符串内用任何引号来强调词语`;
+- 不要在 JSON 字符串内用任何引号来强调词语
+
+**项目上下文（CLAUDE.md）生成规则**：
+每当你输出 <stories> 时，如果你对项目的背景、目标和技术选型已有足够了解，同时在回复末尾附加输出以下格式的项目上下文（紧跟在 <stories> 后面）。该内容将保存为项目的 CLAUDE.md 文件，供后续 AI 编码 Agent（Ralph）自动读取：
+
+<project_context>
+# Project Context
+
+## Overview
+[项目概述：做什么、目标用户、核心价值。2-4句话]
+
+## Tech Stack
+[技术栈：编程语言、框架、数据库、主要依赖库。如果用户未提及则省略此节]
+
+## Architecture
+[架构说明：关键设计决策、模块划分、数据流。如果尚不清楚则省略此节]
+
+## Notes for Ralph
+[给自动编码 AI 的特殊说明：编码规范、目录结构偏好、需要注意的约束。如果没有特殊要求则省略此节]
+</project_context>
+
+注意：
+- 只在输出 <stories> 时才输出 <project_context>，普通对话中不输出
+- 内容要精炼准确，基于对话中用户实际提到的信息，不要凭空推测
+- 如果信息不足，宁可省略某节，也不要写不确定的内容`;
 
 interface ExistingStory {
   id: string;
@@ -163,6 +189,8 @@ ${list}
 function buildPrompt(
   messages: { role: 'user' | 'assistant'; content: string }[],
   existingStories?: ExistingStory[],
+  progressContent?: string,
+  projectContext?: string,
 ): string {
   const history = messages
     .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
@@ -172,8 +200,16 @@ function buildPrompt(
     ? buildExistingStoriesContext(existingStories)
     : '';
 
+  const projectCtx = projectContext
+    ? `\n<project_context_existing>\n以下是该项目已有的上下文文件（CLAUDE.md），请基于此进行讨论，并在输出 <stories> 时更新该内容（如有新发现）：\n\n${projectContext}\n</project_context_existing>\n`
+    : '';
+
+  const progressCtx = progressContent
+    ? `\n<project_progress>\n以下是 Ralph 在该项目执行过程中积累的技术记录，反映了真实的实现情况、技术约束和架构决策，请在分解 Story 时参考：\n\n${progressContent}\n</project_progress>\n`
+    : '';
+
   return `${SYSTEM_PROMPT}
-${existingCtx}
+${existingCtx}${projectCtx}${progressCtx}
 <conversation>
 ${history}
 </conversation>
@@ -182,9 +218,10 @@ ${history}
 }
 
 router.post('/chat', async (req: Request, res: Response) => {
-  const { messages, existingStories } = req.body as {
+  const { messages, existingStories, projectPath } = req.body as {
     messages: { role: 'user' | 'assistant'; content: string }[];
     existingStories?: ExistingStory[];
+    projectPath?: string;
   };
 
   if (!messages || messages.length === 0) {
@@ -192,10 +229,20 @@ router.post('/chat', async (req: Request, res: Response) => {
     return;
   }
 
-  const prompt = buildPrompt(messages, existingStories);
+  const [progressContent, projectContext] = await Promise.all([
+    projectPath ? readProgress(projectPath) : Promise.resolve(''),
+    projectPath ? readProjectContext(projectPath) : Promise.resolve(null),
+  ]);
+
+  const prompt = buildPrompt(
+    messages,
+    existingStories,
+    progressContent || undefined,
+    projectContext || undefined,
+  );
 
   try {
-    const content = await new Promise<string>((resolve, reject) => {
+    const rawContent = await new Promise<string>((resolve, reject) => {
       const proc = spawn('claude', ['--dangerously-skip-permissions', '-p', prompt], {
         cwd: tmpdir(),
         shell: false,
@@ -213,13 +260,36 @@ router.post('/chat', async (req: Request, res: Response) => {
       proc.on('error', reject);
     });
 
+    // Extract and save project_context if present
+    const projectContextMatch = rawContent.match(/<project_context>([\s\S]*?)<\/project_context>/);
+    let projectContextSaved = false;
+    if (projectContextMatch && projectPath) {
+      const newContext = projectContextMatch[1].trim();
+      await writeProjectContext(projectPath, newContext);
+      projectContextSaved = true;
+    }
+
+    // Strip <project_context> block from content shown to user
+    const content = rawContent.replace(/<project_context>[\s\S]*?<\/project_context>/g, '').trim();
+
     const storiesMatch = content.match(/<stories>([\s\S]*?)<\/stories>/);
     const stories = storiesMatch ? parseStories(storiesMatch[1].trim()) : null;
 
-    res.json({ content, stories });
+    res.json({ content, stories, projectContextSaved });
   } catch (e) {
     res.status(500).json({ error: String(e) });
   }
+});
+
+// Get project context (CLAUDE.md)
+router.get('/project-context', async (req: Request, res: Response) => {
+  const { projectPath } = req.query as { projectPath?: string };
+  if (!projectPath) {
+    res.status(400).json({ error: 'projectPath required' });
+    return;
+  }
+  const context = await readProjectContext(projectPath);
+  res.json({ context });
 });
 
 export default router;

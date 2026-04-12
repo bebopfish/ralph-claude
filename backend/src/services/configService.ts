@@ -50,3 +50,9 @@ export async function getRecentProjects(): Promise<string[]> {
   const config = await readConfig();
   return config.recentProjects;
 }
+
+export async function removeRecentProject(projectPath: string): Promise<void> {
+  const config = await readConfig();
+  config.recentProjects = config.recentProjects.filter((p) => p !== projectPath);
+  await writeConfig(config);
+}

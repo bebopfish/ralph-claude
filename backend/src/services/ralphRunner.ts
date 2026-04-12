@@ -26,6 +26,18 @@ function log(level: 'info' | 'warn' | 'error', message: string): void {
 }
 
 function buildPrompt(story: Story, progress: string): string {
+  const reimplementSection = story.previousCommitHash
+    ? `
+## ⚠️ Re-implementation Notice
+This story was previously implemented (commit: ${story.previousCommitHash}) but the requirements have since been changed.
+DO NOT re-implement from scratch. Instead:
+1. Find the existing code written for this story
+2. Understand what was already implemented
+3. Update the existing implementation to meet the NEW acceptance criteria above
+4. Remove or replace anything that no longer fits the new requirements
+`
+    : '';
+
   return `You are implementing a software story as part of an automated AI coding loop.
 
 ## Story
@@ -34,7 +46,7 @@ Description: ${story.description}
 
 ## Acceptance Criteria
 ${story.acceptanceCriteria.map((ac) => `- ${ac}`).join('\n')}
-
+${reimplementSection}
 ## Previous Learnings (progress.txt)
 ${progress || 'No previous learnings yet.'}
 

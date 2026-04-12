@@ -4,6 +4,8 @@ import { apiPrd } from '../api/prd';
 import { useAppStore } from '../store/appStore';
 import { Story } from '../types';
 
+const STORAGE_KEY_CONTEXT = 'brainstorm-has-project-context';
+
 interface MessageWithStories extends ChatMessage {
   stories?: StoryDraft[];
 }
@@ -25,6 +27,8 @@ export default function BrainstormPage() {
   const [addingToPrd, setAddingToPrd] = useState(false);
   const [addResult, setAddResult] = useState<string | null>(null);
   const [prdExpanded, setPrdExpanded] = useState(true);
+  const [hasProjectContext, setHasProjectContext] = useState(false);
+  const [contextJustSaved, setContextJustSaved] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const currentProject = useAppStore((s) => s.currentProject);
@@ -40,6 +44,14 @@ export default function BrainstormPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
+
+  // Check if CLAUDE.md exists for current project
+  useEffect(() => {
+    if (!currentProject) { setHasProjectContext(false); return; }
+    apiBrainstorm.getProjectContext(currentProject).then((ctx) => {
+      setHasProjectContext(!!ctx);
+    });
+  }, [currentProject]);
 
   // Collect all suggested stories from assistant messages
   const allStories: { story: StoryDraft; key: string }[] = [];
@@ -84,7 +96,7 @@ export default function BrainstormPage() {
         acceptanceCriteria: s.acceptanceCriteria,
         status: s.status,
       }));
-      const result = await apiBrainstorm.chat(apiMessages, storiesToPass.length > 0 ? storiesToPass : undefined);
+      const result = await apiBrainstorm.chat(apiMessages, storiesToPass.length > 0 ? storiesToPass : undefined, currentProject);
 
       const assistantMsg: MessageWithStories = {
         role: 'assistant',
@@ -92,6 +104,12 @@ export default function BrainstormPage() {
         stories: result.stories ?? undefined,
       };
       setMessages((prev) => [...prev, assistantMsg]);
+
+      if (result.projectContextSaved) {
+        setHasProjectContext(true);
+        setContextJustSaved(true);
+        setTimeout(() => setContextJustSaved(false), 4000);
+      }
 
       if (result.stories && result.stories.length > 0) {
         // Auto-select all new stories
@@ -138,17 +156,27 @@ export default function BrainstormPage() {
     const toProcess = allStories.filter(({ key }) => selectedStories.has(key));
     let addedCount = 0;
     let updatedCount = 0;
+    let resetCount = 0;
     const errors: string[] = [];
 
     for (const { story } of toProcess) {
       try {
         if (story.storyId) {
+          const existing = existingStories.find((s: Story) => s.id === story.storyId);
+          const shouldReset = existing?.status === 'completed' || existing?.status === 'in_progress';
           await apiPrd.updateStory(story.storyId, {
             title: story.title,
             description: story.description,
             acceptanceCriteria: story.acceptanceCriteria,
+            ...(shouldReset ? {
+              status: 'pending',
+              completedAt: undefined,
+              previousCommitHash: existing?.commitHash ?? undefined,
+              commitHash: null,
+            } : {}),
           });
           updatedCount++;
+          if (shouldReset) resetCount++;
         } else {
           await apiPrd.addStory({
             title: story.title,
@@ -170,10 +198,11 @@ export default function BrainstormPage() {
     const parts: string[] = [];
     if (addedCount > 0) parts.push(`新增 ${addedCount} 个`);
     if (updatedCount > 0) parts.push(`更新 ${updatedCount} 个`);
+    const resetNote = resetCount > 0 ? `，其中 ${resetCount} 个已重置为待处理` : '';
     if (errors.length === 0) {
-      setAddResult(`✅ 已成功${parts.join('、')} Story`);
+      setAddResult(`✅ 已成功${parts.join('、')} Story${resetNote}`);
     } else {
-      setAddResult(`✅ ${parts.join('、')}，❌ 失败 ${errors.length} 个：${errors.join('、')}`);
+      setAddResult(`✅ ${parts.join('、')}${resetNote}，❌ 失败 ${errors.length} 个：${errors.join('、')}`);
     }
   }
 
@@ -224,6 +253,36 @@ export default function BrainstormPage() {
           >
             描述你的产品或功能，AI 帮你分解 Story，确认后一键添加到 PRD
           </p>
+          <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '2px 8px',
+                borderRadius: '4px',
+                fontSize: '11px',
+                fontFamily: 'monospace',
+                background: hasProjectContext ? 'rgba(48,209,88,0.1)' : 'rgba(255,255,255,0.05)',
+                border: `1px solid ${hasProjectContext ? 'rgba(48,209,88,0.25)' : 'rgba(255,255,255,0.1)'}`,
+                color: hasProjectContext ? '#30d158' : 'rgba(255,255,255,0.25)',
+                transition: 'all 0.3s',
+              }}
+            >
+              <span style={{ fontSize: '9px' }}>{hasProjectContext ? '●' : '○'}</span>
+              CLAUDE.md
+              {contextJustSaved && (
+                <span style={{ color: '#30d158', fontFamily: 'var(--font-text)', fontStyle: 'normal' }}>
+                  已生成
+                </span>
+              )}
+            </span>
+            {!hasProjectContext && (
+              <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.2)', letterSpacing: '-0.1px' }}>
+                与 AI 对话后自动生成项目上下文
+              </span>
+            )}
+          </div>
         </div>
         {messages.length > 0 && (
           <button

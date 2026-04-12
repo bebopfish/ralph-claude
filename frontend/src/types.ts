@@ -9,6 +9,7 @@ export interface Story {
   priority: number;
   completedAt: string | null;
   commitHash: string | null;
+  previousCommitHash?: string | null;
 }
 
 export interface PrdFile {
