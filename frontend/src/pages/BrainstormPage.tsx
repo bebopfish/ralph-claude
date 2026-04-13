@@ -8,6 +8,13 @@ const STORAGE_KEY_CONTEXT = 'brainstorm-has-project-context';
 
 interface MessageWithStories extends ChatMessage {
   stories?: StoryDraft[];
+  attachmentNames?: string[];
+  displayText?: string;
+}
+
+interface Attachment {
+  name: string;
+  content: string;
 }
 
 const STORAGE_KEY_PREFIX = 'brainstorm-messages';
@@ -22,8 +29,10 @@ export default function BrainstormPage() {
   const [prdExpanded, setPrdExpanded] = useState(true);
   const [hasProjectContext, setHasProjectContext] = useState(false);
   const [contextJustSaved, setContextJustSaved] = useState(false);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const currentProject = useAppStore((s) => s.currentProject);
   const fetchPrd = useAppStore((s) => s.fetchPrd);
   const prd = useAppStore((s) => s.prd);
@@ -81,14 +90,45 @@ export default function BrainstormPage() {
 
   const selectedCount = selectedStories.size;
 
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    files.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const content = ev.target?.result as string;
+        setAttachments((prev) => [...prev, { name: file.name, content }]);
+      };
+      reader.readAsText(file, 'utf-8');
+    });
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }
+
+  function removeAttachment(idx: number) {
+    setAttachments((prev) => prev.filter((_, i) => i !== idx));
+  }
+
   async function sendMessage() {
     const text = input.trim();
-    if (!text || loading) return;
+    if ((!text && attachments.length === 0) || loading) return;
 
-    const newUserMsg: MessageWithStories = { role: 'user', content: text };
+    let fullContent = text;
+    if (attachments.length > 0) {
+      const attachmentSection = attachments
+        .map((a) => `\n\n--- 附件: ${a.name} ---\n${a.content}\n--- 附件结束 ---`)
+        .join('');
+      fullContent = text + attachmentSection;
+    }
+
+    const newUserMsg: MessageWithStories = {
+      role: 'user',
+      content: fullContent,
+      displayText: text,
+      attachmentNames: attachments.length > 0 ? attachments.map((a) => a.name) : undefined,
+    };
     const nextMessages = [...messages, newUserMsg];
     setMessages(nextMessages);
     setInput('');
+    setAttachments([]);
     setLoading(true);
     setAddResult(null);
 
@@ -484,18 +524,52 @@ export default function BrainstormPage() {
               <div
                 style={{
                   maxWidth: '80%',
-                  padding: '10px 14px',
-                  borderRadius: msg.role === 'user' ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
-                  background: msg.role === 'user' ? '#1a6cf5' : 'rgba(255,255,255,0.07)',
-                  border: msg.role === 'user' ? 'none' : '1px solid rgba(255,255,255,0.1)',
-                  color: '#fff',
-                  fontSize: '13px',
-                  lineHeight: 1.6,
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px',
+                  alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start',
                 }}
               >
-                {msg.role === 'user' ? msg.content : stripStoriesTag(msg.content)}
+                {msg.role === 'user' && msg.attachmentNames && msg.attachmentNames.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', justifyContent: 'flex-end' }}>
+                    {msg.attachmentNames.map((name, i) => (
+                      <span
+                        key={i}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '2px 8px',
+                          borderRadius: '6px',
+                          background: 'rgba(26,108,245,0.25)',
+                          border: '1px solid rgba(26,108,245,0.4)',
+                          color: 'rgba(255,255,255,0.8)',
+                          fontSize: '11px',
+                        }}
+                      >
+                        <svg width="10" height="10" viewBox="0 0 14 14" fill="none">
+                          <path d="M11.5 6.5L6 12a3.5 3.5 0 01-4.95-4.95l5.5-5.5a2 2 0 012.83 2.83L4.38 9.38a.5.5 0 01-.71-.71L8.5 3.84" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                        {name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div
+                  style={{
+                    padding: '10px 14px',
+                    borderRadius: msg.role === 'user' ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
+                    background: msg.role === 'user' ? '#1a6cf5' : 'rgba(255,255,255,0.07)',
+                    border: msg.role === 'user' ? 'none' : '1px solid rgba(255,255,255,0.1)',
+                    color: '#fff',
+                    fontSize: '13px',
+                    lineHeight: 1.6,
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                  }}
+                >
+                  {msg.role === 'user' ? (msg.displayText ?? msg.content) : stripStoriesTag(msg.content)}
+                </div>
               </div>
             </div>
 
@@ -726,67 +800,168 @@ export default function BrainstormPage() {
           flexShrink: 0,
         }}
       >
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept=".txt,.md,.markdown,.json,.yaml,.yml,.xml,.csv,.ts,.tsx,.js,.jsx,.py,.java,.go,.rs,.html,.css,.sh,.bash,.toml,.ini,.conf,.log"
+          style={{ display: 'none' }}
+          onChange={handleFileSelect}
+        />
         <div
           style={{
             display: 'flex',
-            gap: '8px',
-            alignItems: 'flex-end',
+            flexDirection: 'column',
+            gap: '0',
             background: 'rgba(255,255,255,0.06)',
             border: '1px solid rgba(255,255,255,0.12)',
             borderRadius: '12px',
-            padding: '8px 8px 8px 14px',
+            overflow: 'hidden',
           }}
         >
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="描述你的产品需求，或继续讨论... (Enter 发送，Shift+Enter 换行)"
-            rows={1}
+          {/* Attachment chips */}
+          {attachments.length > 0 && (
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: '6px',
+                padding: '8px 12px 6px',
+                borderBottom: '1px solid rgba(255,255,255,0.07)',
+              }}
+            >
+              {attachments.map((a, i) => (
+                <span
+                  key={i}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    padding: '3px 8px 3px 6px',
+                    borderRadius: '6px',
+                    background: 'rgba(26,108,245,0.15)',
+                    border: '1px solid rgba(26,108,245,0.35)',
+                    color: 'rgba(255,255,255,0.75)',
+                    fontSize: '11px',
+                  }}
+                >
+                  <svg width="10" height="10" viewBox="0 0 14 14" fill="none">
+                    <path d="M11.5 6.5L6 12a3.5 3.5 0 01-4.95-4.95l5.5-5.5a2 2 0 012.83 2.83L4.38 9.38a.5.5 0 01-.71-.71L8.5 3.84" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  {a.name}
+                  <button
+                    onClick={() => removeAttachment(i)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      padding: '0',
+                      cursor: 'pointer',
+                      color: 'rgba(255,255,255,0.4)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      lineHeight: 1,
+                      fontSize: '13px',
+                    }}
+                    title="移除"
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          {/* Textarea row */}
+          <div
             style={{
-              flex: 1,
-              background: 'transparent',
-              border: 'none',
-              outline: 'none',
-              color: '#fff',
-              fontSize: '13px',
-              fontFamily: 'inherit',
-              resize: 'none',
-              lineHeight: 1.5,
-              maxHeight: '120px',
-              overflowY: 'auto',
-              padding: '2px 0',
-            }}
-            onInput={(e) => {
-              const el = e.currentTarget;
-              el.style.height = 'auto';
-              el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
-            }}
-          />
-          <button
-            onClick={sendMessage}
-            disabled={loading || !input.trim()}
-            style={{
-              width: '32px',
-              height: '32px',
-              borderRadius: '8px',
-              background:
-                loading || !input.trim() ? 'rgba(255,255,255,0.08)' : '#1a6cf5',
-              border: 'none',
-              color: '#fff',
-              cursor: loading || !input.trim() ? 'not-allowed' : 'pointer',
               display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-              transition: 'background 0.15s',
+              gap: '8px',
+              alignItems: 'flex-end',
+              padding: '8px 8px 8px 14px',
             }}
           >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path d="M12.5 7L1.5 1.5L4.5 7L1.5 12.5L12.5 7Z" fill="currentColor" />
-            </svg>
-          </button>
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="描述你的产品需求，或继续讨论... (Enter 发送，Shift+Enter 换行)"
+              rows={1}
+              style={{
+                flex: 1,
+                background: 'transparent',
+                border: 'none',
+                outline: 'none',
+                color: '#fff',
+                fontSize: '13px',
+                fontFamily: 'inherit',
+                resize: 'none',
+                lineHeight: 1.5,
+                maxHeight: '120px',
+                overflowY: 'auto',
+                padding: '2px 0',
+              }}
+              onInput={(e) => {
+                const el = e.currentTarget;
+                el.style.height = 'auto';
+                el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+              }}
+            />
+            {/* Paperclip button */}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              title="添加附件"
+              style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '8px',
+                background: attachments.length > 0 ? 'rgba(26,108,245,0.2)' : 'transparent',
+                border: 'none',
+                color: attachments.length > 0 ? '#1a6cf5' : 'rgba(255,255,255,0.35)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                transition: 'all 0.15s',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = '#fff';
+                e.currentTarget.style.background = 'rgba(255,255,255,0.08)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = attachments.length > 0 ? '#1a6cf5' : 'rgba(255,255,255,0.35)';
+                e.currentTarget.style.background = attachments.length > 0 ? 'rgba(26,108,245,0.2)' : 'transparent';
+              }}
+            >
+              <svg width="15" height="15" viewBox="0 0 14 14" fill="none">
+                <path d="M11.5 6.5L6 12a3.5 3.5 0 01-4.95-4.95l5.5-5.5a2 2 0 012.83 2.83L4.38 9.38a.5.5 0 01-.71-.71L8.5 3.84" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+            {/* Send button */}
+            <button
+              onClick={sendMessage}
+              disabled={loading || (!input.trim() && attachments.length === 0)}
+              style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '8px',
+                background:
+                  loading || (!input.trim() && attachments.length === 0) ? 'rgba(255,255,255,0.08)' : '#1a6cf5',
+                border: 'none',
+                color: '#fff',
+                cursor: loading || (!input.trim() && attachments.length === 0) ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                transition: 'background 0.15s',
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M12.5 7L1.5 1.5L4.5 7L1.5 12.5L12.5 7Z" fill="currentColor" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
 
