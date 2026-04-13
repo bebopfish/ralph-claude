@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import fs from 'fs/promises';
+import os from 'os';
 import path from 'path';
 import { exec } from 'child_process';
 import {
@@ -68,7 +69,7 @@ router.delete('/recent', async (req: Request, res: Response) => {
 
 router.post('/browse', async (req: Request, res: Response) => {
   const { path: dirPath } = req.body as { path?: string };
-  const targetPath = dirPath || (process.platform === 'win32' ? 'C:\\' : '/');
+  const targetPath = dirPath || os.homedir();
 
   try {
     const entries = await fs.readdir(targetPath, { withFileTypes: true });

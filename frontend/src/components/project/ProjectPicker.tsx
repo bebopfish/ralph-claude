@@ -29,6 +29,8 @@ export default function ProjectPicker({ onClose }: Props) {
       setPathInput(path);
       setBrowsePathIsGit(isGitRepo);
       setDirs(dirs);
+    }).catch(() => {
+      setBrowseError('无法读取默认目录');
     });
   }, []);
 
@@ -309,8 +311,8 @@ export default function ProjectPicker({ onClose }: Props) {
               >
                 <button
                   onClick={() => {
-                    const parent = browsePath.replace(/[/\\][^/\\]+$/, '') || '/';
-                    if (parent !== browsePath) browse(parent);
+                    const parent = browsePath.replace(/[/\\][^/\\]+$/, '');
+                    if (parent && parent !== browsePath) browse(parent);
                   }}
                   style={{
                     background: 'none', border: 'none', cursor: 'pointer',
