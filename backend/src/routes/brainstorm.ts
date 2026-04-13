@@ -245,7 +245,7 @@ router.post('/chat', async (req: Request, res: Response) => {
     const rawContent = await new Promise<string>((resolve, reject) => {
       const proc = spawn('claude', ['--dangerously-skip-permissions', '-p', prompt], {
         cwd: tmpdir(),
-        shell: false,
+        shell: process.platform === 'win32',
         env: process.env,
       });
 

@@ -10,17 +10,10 @@ interface MessageWithStories extends ChatMessage {
   stories?: StoryDraft[];
 }
 
-const STORAGE_KEY = 'brainstorm-messages';
+const STORAGE_KEY_PREFIX = 'brainstorm-messages';
 
 export default function BrainstormPage() {
-  const [messages, setMessages] = useState<MessageWithStories[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      return saved ? (JSON.parse(saved) as MessageWithStories[]) : [];
-    } catch (_e) {
-      return [];
-    }
-  });
+  const [messages, setMessages] = useState<MessageWithStories[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [selectedStories, setSelectedStories] = useState<Set<string>>(new Set());
@@ -36,10 +29,22 @@ export default function BrainstormPage() {
   const prd = useAppStore((s) => s.prd);
   const existingStories = prd?.stories ?? [];
 
+  // Load messages when project changes
+  useEffect(() => {
+    if (!currentProject) { setMessages([]); return; }
+    try {
+      const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}:${currentProject}`);
+      setMessages(saved ? (JSON.parse(saved) as MessageWithStories[]) : []);
+    } catch {
+      setMessages([]);
+    }
+  }, [currentProject]);
+
   // Persist messages to localStorage whenever they change
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
-  }, [messages]);
+    if (!currentProject) return;
+    localStorage.setItem(`${STORAGE_KEY_PREFIX}:${currentProject}`, JSON.stringify(messages));
+  }, [messages, currentProject]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
