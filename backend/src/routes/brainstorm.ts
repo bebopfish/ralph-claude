@@ -42,13 +42,13 @@ const SYSTEM_PROMPT = `你是一个经验丰富的敏捷开发顾问，擅长帮
 - 不要在 JSON 字符串内用任何引号来强调词语
 
 **项目上下文（CLAUDE.md）生成规则**：
-每当你输出 <stories> 时，如果你对项目的背景、目标和技术选型已有足够了解，同时在回复末尾附加输出以下格式的项目上下文（紧跟在 <stories> 后面）。该内容将保存为项目的 CLAUDE.md 文件，供后续 AI 编码 Agent（Ralph）自动读取：
+每当你输出 <stories> 时，必须同时在回复末尾附加输出以下格式的项目上下文（紧跟在 <stories> 后面）。该内容将保存为项目的 CLAUDE.md 文件，供后续 AI 编码 Agent（Ralph）自动读取：
 
 <project_context>
 # Project Context
 
 ## Overview
-[项目概述：做什么、目标用户、核心价值。2-4句话]
+[项目概述：做什么、目标用户、核心价值。2-4句话。信息不足时只写已知部分]
 
 ## Tech Stack
 [技术栈：编程语言、框架、数据库、主要依赖库。如果用户未提及则省略此节]
@@ -63,7 +63,8 @@ const SYSTEM_PROMPT = `你是一个经验丰富的敏捷开发顾问，擅长帮
 注意：
 - 只在输出 <stories> 时才输出 <project_context>，普通对话中不输出
 - 内容要精炼准确，基于对话中用户实际提到的信息，不要凭空推测
-- 如果信息不足，宁可省略某节，也不要写不确定的内容`;
+- 信息不足时宁可省略某节，也不要写不确定的内容
+- 每次输出 <stories> 都必须重新输出完整的 <project_context>，以保持 CLAUDE.md 与最新对话内容同步`;
 
 interface ExistingStory {
   id: string;
