@@ -61,7 +61,7 @@ export default function TopNav() {
               letterSpacing: '-0.28px',
             }}
           >
-            Ralph Claude
+            Ralph Claw
           </span>
         </div>
 
