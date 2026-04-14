@@ -208,7 +208,7 @@ export default function BrainstormPage() {
       try {
         if (story.storyId) {
           const existing = existingStories.find((s: Story) => s.id === story.storyId);
-          const shouldReset = existing?.status === 'completed' || existing?.status === 'in_progress';
+          const shouldReset = existing?.status === 'completed' || existing?.status === 'in-progress';
           await apiPrd.updateStory(story.storyId, {
             title: story.title,
             description: story.description,
@@ -335,7 +335,7 @@ export default function BrainstormPage() {
               setMessages([]);
               setSelectedStories(new Set());
               setAddResult(null);
-              localStorage.removeItem(STORAGE_KEY);
+              if (currentProject) localStorage.removeItem(`${STORAGE_KEY_PREFIX}:${currentProject}`);
             }}
             style={{
               background: 'transparent',
@@ -429,17 +429,17 @@ export default function BrainstormPage() {
                         borderRadius: '4px',
                         background: story.status === 'completed'
                           ? 'rgba(48,209,88,0.15)'
-                          : story.status === 'in_progress'
+                          : story.status === 'in-progress'
                           ? 'rgba(255,159,10,0.15)'
                           : 'rgba(255,255,255,0.08)',
                         color: story.status === 'completed'
                           ? '#30d158'
-                          : story.status === 'in_progress'
+                          : story.status === 'in-progress'
                           ? '#ff9f0a'
                           : 'rgba(255,255,255,0.4)',
                       }}
                     >
-                      {story.status === 'completed' ? '已完成' : story.status === 'in_progress' ? '执行中' : '待处理'}
+                      {story.status === 'completed' ? '已完成' : story.status === 'in-progress' ? '执行中' : '待处理'}
                     </span>
                   </div>
                   <button

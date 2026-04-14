@@ -27,10 +27,10 @@ Task 格式：
 
 当你准备好输出最终确认的 Story 列表时（用户确认后或你认为讨论已足够充分），在回复末尾用以下格式输出，除此之外不要在其他地方输出该格式：
 
+**新增 Story（默认情况，不含 storyId）：**
 <stories>
 [
   {
-    "storyId": "story-1234",
     "title": "Story标题",
     "description": "作为用户，我想要...",
     "acceptanceCriteria": ["条件1", "条件2", "条件3"],
@@ -43,7 +43,22 @@ Task 格式：
 ]
 </stories>
 
-新增 Story 时省略 storyId 字段。修改已有 Story 时必须填写对应的 storyId。
+**修改已有 Story 时，才加 storyId 字段（值为被修改 Story 的 id）：**
+<stories>
+[
+  {
+    "storyId": "story-1234",
+    "title": "修改后的标题",
+    "description": "修改后的描述...",
+    "acceptanceCriteria": ["条件1", "条件2"],
+    "tasks": [
+      { "title": "Updated task" }
+    ]
+  }
+]
+</stories>
+
+⚠️ 绝大多数情况是新增，不要给新 Story 编造 storyId。只有在用户明确要求修改某个已有 Story 时才填写 storyId。
 
 **严格的 JSON 格式要求**：
 - 字符串值内部绝对不能出现英文双引号（"）
