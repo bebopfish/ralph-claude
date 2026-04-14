@@ -33,6 +33,7 @@ export default function BrainstormPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const isRestoringRef = useRef(false);
   const currentProject = useAppStore((s) => s.currentProject);
   const fetchPrd = useAppStore((s) => s.fetchPrd);
   const prd = useAppStore((s) => s.prd);
@@ -40,6 +41,7 @@ export default function BrainstormPage() {
 
   // Load messages when project changes
   useEffect(() => {
+    isRestoringRef.current = true;
     if (!currentProject) { setMessages([]); return; }
     try {
       const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}:${currentProject}`);
@@ -50,7 +52,12 @@ export default function BrainstormPage() {
   }, [currentProject]);
 
   // Persist messages to localStorage whenever they change
+  // Skip the first write after restoring from storage to avoid overwriting with empty array
   useEffect(() => {
+    if (isRestoringRef.current) {
+      isRestoringRef.current = false;
+      return;
+    }
     if (!currentProject) return;
     localStorage.setItem(`${STORAGE_KEY_PREFIX}:${currentProject}`, JSON.stringify(messages));
   }, [messages, currentProject]);
