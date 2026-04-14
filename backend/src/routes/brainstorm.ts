@@ -20,6 +20,10 @@ const SYSTEM_PROMPT = `你是一个经验丰富的敏捷开发顾问，擅长帮
 - title：简洁的标题（中文，15字以内）
 - description：用用户故事格式描述（"作为[角色]，我想要[功能]，以便[价值]"）
 - acceptanceCriteria：具体可验证的验收标准列表（3-5条）
+- tasks：将该 Story 拆解为 2-6 个具体的执行任务（Task），每个 Task 应聚焦在单一职责（如创建一个文件、实现一个接口、写一组测试），粒度足够小以便 AI 在一次调用中完成
+
+Task 格式：
+- title：简洁描述要做什么（英文或中文均可，建议英文，如 "Create User model"、"Implement POST /api/login"）
 
 当你准备好输出最终确认的 Story 列表时（用户确认后或你认为讨论已足够充分），在回复末尾用以下格式输出，除此之外不要在其他地方输出该格式：
 
@@ -29,7 +33,12 @@ const SYSTEM_PROMPT = `你是一个经验丰富的敏捷开发顾问，擅长帮
     "storyId": "story-1234",
     "title": "Story标题",
     "description": "作为用户，我想要...",
-    "acceptanceCriteria": ["条件1", "条件2", "条件3"]
+    "acceptanceCriteria": ["条件1", "条件2", "条件3"],
+    "tasks": [
+      { "title": "Create data model" },
+      { "title": "Implement API endpoint" },
+      { "title": "Write unit tests" }
+    ]
   }
 ]
 </stories>
@@ -74,11 +83,16 @@ interface ExistingStory {
   status: string;
 }
 
+interface TaskDraft {
+  title: string;
+}
+
 interface StoryDraft {
   storyId?: string;
   title: string;
   description: string;
   acceptanceCriteria: string[];
+  tasks?: TaskDraft[];
 }
 
 /**
@@ -141,11 +155,33 @@ function extractStoriesLenient(text: string): StoryDraft[] | null {
       }
     }
 
+    // Tasks: find the tasks array (after acceptanceCriteria array ends)
+    const tasks: TaskDraft[] = [];
+    const tasksKeyIdx = block.indexOf('"tasks"');
+    if (tasksKeyIdx >= 0) {
+      const tasksArrStart = block.indexOf('[', tasksKeyIdx);
+      let tasksArrEnd = -1, td = 0;
+      for (let i = tasksArrStart; i < block.length; i++) {
+        if (block[i] === '[') td++;
+        else if (block[i] === ']') { td--; if (!td) { tasksArrEnd = i; break; } }
+      }
+      if (tasksArrStart >= 0 && tasksArrEnd > tasksArrStart) {
+        // Extract each { "title": "..." } object
+        const tasksStr = block.slice(tasksArrStart + 1, tasksArrEnd);
+        const taskTitleRe = /"title"\s*:\s*"([^"]+)"/g;
+        let m: RegExpExecArray | null;
+        while ((m = taskTitleRe.exec(tasksStr)) !== null) {
+          tasks.push({ title: m[1] });
+        }
+      }
+    }
+
     stories.push({
       ...(storyIdM ? { storyId: storyIdM[1] } : {}),
       title: titleM[1],
       description,
       acceptanceCriteria,
+      ...(tasks.length > 0 ? { tasks } : {}),
     });
   }
 

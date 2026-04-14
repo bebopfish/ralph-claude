@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { PrdFile, Story, StoryStatus } from '../types';
+import { PrdFile, Story, StoryStatus, Task } from '../types';
 
 export function getPrdPath(projectPath: string): string {
   return path.join(projectPath, 'prd.json');
@@ -36,8 +36,18 @@ export async function addStory(projectPath: string, story: Omit<Story, 'id' | 's
   const prd = await readPrd(projectPath);
   if (!prd) throw new Error('prd.json not found');
 
+  // Normalize tasks: incoming may be drafts with only `title`
+  const tasks: Task[] | undefined = story.tasks?.map((t, i) => ({
+    id: `task-${Date.now()}-${i}`,
+    title: t.title,
+    status: 'pending' as const,
+    commitHash: null,
+    completedAt: null,
+  }));
+
   const newStory: Story = {
     ...story,
+    tasks,
     id: `story-${Date.now()}`,
     status: 'pending',
     completedAt: null,
@@ -54,6 +64,17 @@ export async function updateStory(projectPath: string, id: string, updates: Part
 
   const idx = prd.stories.findIndex((s) => s.id === id);
   if (idx === -1) throw new Error(`Story ${id} not found`);
+
+  // Normalize tasks: ensure every task has a proper id/status
+  if (updates.tasks) {
+    updates.tasks = updates.tasks.map((t, i) => ({
+      id: t.id || `task-${Date.now()}-${i}`,
+      title: t.title,
+      status: t.status || 'pending',
+      commitHash: t.commitHash ?? null,
+      completedAt: t.completedAt ?? null,
+    }));
+  }
 
   prd.stories[idx] = { ...prd.stories[idx], ...updates };
   await writePrd(projectPath, prd);
@@ -73,6 +94,57 @@ export async function updateStoryStatus(
     updates.previousCommitHash = null; // clear after successful re-implementation
   }
   await updateStory(projectPath, id, updates);
+}
+
+/** Derive story status from its tasks. */
+export function deriveStoryStatus(tasks: Task[]): StoryStatus {
+  if (tasks.length === 0) return 'pending';
+  if (tasks.some((t) => t.status === 'failed')) return 'failed';
+  if (tasks.some((t) => t.status === 'in-progress')) return 'in-progress';
+  if (tasks.every((t) => t.status === 'completed')) return 'completed';
+  return 'pending';
+}
+
+export async function updateTaskStatus(
+  projectPath: string,
+  storyId: string,
+  taskId: string,
+  status: StoryStatus,
+  commitHash?: string,
+): Promise<{ story: Story; task: Task }> {
+  const prd = await readPrd(projectPath);
+  if (!prd) throw new Error('prd.json not found');
+
+  const storyIdx = prd.stories.findIndex((s) => s.id === storyId);
+  if (storyIdx === -1) throw new Error(`Story ${storyId} not found`);
+
+  const story = prd.stories[storyIdx];
+  const tasks = story.tasks ?? [];
+  const taskIdx = tasks.findIndex((t) => t.id === taskId);
+  if (taskIdx === -1) throw new Error(`Task ${taskId} not found`);
+
+  const updatedTask: Task = {
+    ...tasks[taskIdx],
+    status,
+    ...(status === 'completed' ? { completedAt: new Date().toISOString() } : {}),
+    ...(commitHash ? { commitHash } : {}),
+  };
+  tasks[taskIdx] = updatedTask;
+
+  // Derive story status from all tasks
+  const derivedStatus = deriveStoryStatus(tasks);
+  const storyUpdates: Partial<Story> = { tasks, status: derivedStatus };
+  if (derivedStatus === 'completed') {
+    storyUpdates.completedAt = new Date().toISOString();
+    // Use last task's commit as story-level commit
+    const lastDone = [...tasks].reverse().find((t) => t.commitHash);
+    if (lastDone?.commitHash) storyUpdates.commitHash = lastDone.commitHash;
+    storyUpdates.previousCommitHash = null;
+  }
+
+  prd.stories[storyIdx] = { ...story, ...storyUpdates };
+  await writePrd(projectPath, prd);
+  return { story: prd.stories[storyIdx], task: updatedTask };
 }
 
 export async function deleteStory(projectPath: string, id: string): Promise<void> {

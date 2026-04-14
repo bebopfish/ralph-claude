@@ -34,6 +34,7 @@ export default function PrdPage() {
     description: string;
     acceptanceCriteria: string[];
     priority: number;
+    tasks: { id?: string; title: string }[];
   }) => {
     await apiPrd.addStory(data);
     await fetchPrd();
@@ -45,6 +46,7 @@ export default function PrdPage() {
     description: string;
     acceptanceCriteria: string[];
     priority: number;
+    tasks: { id?: string; title: string }[];
     resetStatus?: boolean;
   }) => {
     if (!editingStory) return;
@@ -53,12 +55,31 @@ export default function PrdPage() {
       description: data.description,
       acceptanceCriteria: data.acceptanceCriteria,
       priority: data.priority,
+      tasks: data.tasks.length > 0
+        ? data.tasks.map((t, i) => ({
+            id: t.id || `task-${Date.now()}-${i}`,
+            title: t.title,
+            // Preserve existing task status if id matches, else default to pending
+            status: editingStory.tasks?.find((et) => et.id === t.id)?.status ?? 'pending',
+            commitHash: editingStory.tasks?.find((et) => et.id === t.id)?.commitHash ?? null,
+            completedAt: editingStory.tasks?.find((et) => et.id === t.id)?.completedAt ?? null,
+          }))
+        : [],
     };
     if (data.resetStatus) {
       updates.status = 'pending';
       updates.completedAt = undefined;
       updates.previousCommitHash = editingStory.commitHash ?? undefined;
       updates.commitHash = null;
+      // Reset all task statuses too
+      if (updates.tasks && updates.tasks.length > 0) {
+        updates.tasks = updates.tasks.map((t) => ({
+          ...t,
+          status: 'pending' as const,
+          commitHash: null,
+          completedAt: null,
+        }));
+      }
     }
     await apiPrd.updateStory(editingStory.id, updates);
     await fetchPrd();

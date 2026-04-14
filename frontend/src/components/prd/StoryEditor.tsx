@@ -6,6 +6,7 @@ interface StoryInput {
   description: string;
   acceptanceCriteria: string[];
   priority: number;
+  tasks: { id?: string; title: string }[];
   resetStatus?: boolean;
 }
 
@@ -21,6 +22,9 @@ export default function StoryEditor({ initial, onSave, onCancel }: Props) {
   const [criteria, setCriteria] = useState<string[]>(
     initial?.acceptanceCriteria ?? ['']
   );
+  const [tasks, setTasks] = useState<{ id?: string; title: string }[]>(
+    initial?.tasks?.map((t) => ({ id: t.id, title: t.title })) ?? []
+  );
   const [priority, setPriority] = useState(initial?.priority ?? 1);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -31,6 +35,12 @@ export default function StoryEditor({ initial, onSave, onCancel }: Props) {
   const removeCriterion = (i: number) => setCriteria(criteria.filter((_, idx) => idx !== i));
   const updateCriterion = (i: number, value: string) => {
     setCriteria(criteria.map((c, idx) => (idx === i ? value : c)));
+  };
+
+  const addTask = () => setTasks([...tasks, { title: '' }]);
+  const removeTask = (i: number) => setTasks(tasks.filter((_, idx) => idx !== i));
+  const updateTask = (i: number, value: string) => {
+    setTasks(tasks.map((t, idx) => (idx === i ? { ...t, title: value } : t)));
   };
 
   const handleSave = async () => {
@@ -46,6 +56,7 @@ export default function StoryEditor({ initial, onSave, onCancel }: Props) {
         description: description.trim(),
         acceptanceCriteria: criteria.filter((c) => c.trim()),
         priority,
+        tasks: tasks.filter((t) => t.title.trim()).map((t) => ({ id: t.id, title: t.title.trim() })),
         resetStatus: needsReset ? resetStatus : undefined,
       });
     } catch {
@@ -131,6 +142,55 @@ export default function StoryEditor({ initial, onSave, onCancel }: Props) {
             </div>
           ))}
         </div>
+      </div>
+
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+          <label style={{ ...labelStyle, marginBottom: 0 }}>
+            Tasks
+            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.24)', marginLeft: '6px', fontWeight: 400 }}>
+              （Ralph 按 task 逐个执行）
+            </span>
+          </label>
+          <button
+            onClick={addTask}
+            style={{ background: 'none', border: 'none', color: '#2997ff', fontSize: '13px', cursor: 'pointer', letterSpacing: '-0.12px' }}
+          >
+            + 添加
+          </button>
+        </div>
+        {tasks.length === 0 ? (
+          <p style={{ fontSize: '13px', color: 'rgba(255,255,255,0.24)', letterSpacing: '-0.12px', margin: 0 }}>
+            无 task — Ralph 将整体执行该 Story
+          </p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {tasks.map((t, i) => (
+              <div key={i} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.24)', width: '16px', flexShrink: 0, textAlign: 'center' }}>
+                  {i + 1}
+                </span>
+                <input
+                  type="text"
+                  value={t.title}
+                  onChange={(e) => updateTask(i, e.target.value)}
+                  placeholder={`Task ${i + 1}，例如 "Create User model"`}
+                  style={{ ...inputStyle, fontSize: '14px', flex: 1 }}
+                  onFocus={(e) => { (e.currentTarget as HTMLInputElement).style.borderColor = '#0071e3'; (e.currentTarget as HTMLInputElement).style.outline = 'none'; }}
+                  onBlur={(e) => { (e.currentTarget as HTMLInputElement).style.borderColor = 'rgba(255,255,255,0.14)'; }}
+                />
+                <button
+                  onClick={() => removeTask(i)}
+                  style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.28)', cursor: 'pointer', fontSize: '18px', padding: '0 4px' }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#ff453a'; }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'rgba(255,255,255,0.28)'; }}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div>

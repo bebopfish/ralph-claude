@@ -1,5 +1,13 @@
 export type StoryStatus = 'pending' | 'in-progress' | 'completed' | 'failed';
 
+export interface Task {
+  id: string;
+  title: string;
+  status: StoryStatus;
+  commitHash: string | null;
+  completedAt: string | null;
+}
+
 export interface Story {
   id: string;
   title: string;
@@ -10,6 +18,7 @@ export interface Story {
   completedAt: string | null;
   commitHash: string | null;
   previousCommitHash?: string | null;
+  tasks?: Task[];
 }
 
 export interface PrdFile {

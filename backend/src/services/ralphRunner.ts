@@ -1,11 +1,11 @@
 import { spawn, ChildProcess } from 'child_process';
 import chokidar, { FSWatcher } from 'chokidar';
 import path from 'path';
-import { readPrd, updateStoryStatus } from './prdService';
+import { readPrd, updateStoryStatus, updateTaskStatus } from './prdService';
 import { readProgress, appendStoryLearnings } from './progressService';
 import { gitCommit } from './gitService';
 import { broadcast } from '../ws/wsHandler';
-import { Story } from '../types';
+import { Story, Task } from '../types';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
@@ -15,6 +15,7 @@ interface RunnerState {
   running: boolean;
   pid?: number;
   currentStoryId?: string;
+  currentTaskId?: string;
   process?: ChildProcess;
   watcher?: FSWatcher;
 }
@@ -72,6 +73,36 @@ async function runCommand(
     proc.stderr?.on('data', (data: Buffer) => { stderr += data.toString(); });
     proc.on('close', (code) => resolve({ exitCode: code ?? 1, stdout, stderr }));
   });
+}
+
+function buildTaskPrompt(story: Story, task: Task, progress: string): string {
+  const completedTasks = (story.tasks ?? []).filter((t) => t.status === 'completed');
+  const completedSection = completedTasks.length > 0
+    ? `\n## Already Completed Tasks in This Story\n${completedTasks.map((t) => `- ✓ ${t.title} (commit: ${t.commitHash})`).join('\n')}\n`
+    : '';
+
+  return `You are implementing a specific task as part of a larger software story in an automated AI coding loop.
+
+## Story Context
+Title: ${story.title}
+Description: ${story.description}
+
+## Acceptance Criteria for the Story
+${story.acceptanceCriteria.map((ac) => `- ${ac}`).join('\n')}
+${completedSection}
+## Current Task to Implement
+${task.title}
+
+## Instructions
+1. Implement ONLY the current task described above
+2. Keep changes focused — do not implement other tasks in the story
+3. Make sure the implementation is consistent with already completed tasks
+4. Write or update tests relevant to this task as needed
+5. Do not break existing functionality
+
+## Previous Learnings (progress.txt)
+${progress || 'No previous learnings yet.'}
+`.trim();
 }
 
 async function runQualityChecks(projectPath: string): Promise<boolean> {
@@ -180,6 +211,82 @@ async function runStory(projectPath: string, story: Story): Promise<boolean> {
   });
 }
 
+async function runTask(projectPath: string, story: Story, task: Task): Promise<boolean> {
+  log('info', `\n[Ralph] Starting task: ${task.title} (Story: ${story.title})`);
+
+  // Mark task in-progress (also updates story status via deriveStoryStatus)
+  await updateTaskStatus(projectPath, story.id, task.id, 'in-progress');
+  broadcast({ type: 'task:update', storyId: story.id, taskId: task.id, status: 'in-progress' });
+  broadcast({ type: 'story:update', storyId: story.id, status: 'in-progress' });
+
+  const progress = await readProgress(projectPath);
+  const prompt = buildTaskPrompt(story, task, progress);
+
+  return new Promise((resolve) => {
+    const proc = spawn('claude', ['--dangerously-skip-permissions', '-p'], {
+      cwd: projectPath,
+      shell: process.platform === 'win32',
+      env: process.env,
+    });
+    proc.stdin?.write(prompt, 'utf-8');
+    proc.stdin?.end();
+
+    state.process = proc;
+
+    proc.stdout?.on('data', (data: Buffer) => { log('info', data.toString()); });
+    proc.stderr?.on('data', (data: Buffer) => { log('warn', data.toString()); });
+
+    proc.on('close', async (code) => {
+      state.process = undefined;
+      if (code !== 0) {
+        log('error', `[Ralph] Claude exited with code ${code}`);
+        await updateTaskStatus(projectPath, story.id, task.id, 'failed');
+        broadcast({ type: 'task:update', storyId: story.id, taskId: task.id, status: 'failed' });
+        broadcast({ type: 'story:update', storyId: story.id, status: 'failed' });
+        resolve(false);
+        return;
+      }
+
+      const qualityPassed = await runQualityChecks(projectPath);
+      if (!qualityPassed) {
+        await updateTaskStatus(projectPath, story.id, task.id, 'failed');
+        broadcast({ type: 'task:update', storyId: story.id, taskId: task.id, status: 'failed' });
+        broadcast({ type: 'story:update', storyId: story.id, status: 'failed' });
+        resolve(false);
+        return;
+      }
+
+      try {
+        const hash = await gitCommit(projectPath, `feat: ${story.title} - ${task.title}`);
+        const { story: updatedStory } = await updateTaskStatus(projectPath, story.id, task.id, 'completed', hash);
+        broadcast({ type: 'task:update', storyId: story.id, taskId: task.id, status: 'completed', commitHash: hash });
+        broadcast({ type: 'story:update', storyId: story.id, status: updatedStory.status, commitHash: updatedStory.commitHash ?? undefined });
+
+        if (updatedStory.status === 'completed') {
+          await appendStoryLearnings(projectPath, { ...updatedStory, status: 'completed' });
+          log('info', `[Ralph] Story completed: ${story.title}`);
+        }
+        log('info', `[Ralph] Task completed and committed: ${hash}`);
+        resolve(true);
+      } catch (e) {
+        log('warn', `[Ralph] Could not commit: ${String(e)}`);
+        const { story: updatedStory } = await updateTaskStatus(projectPath, story.id, task.id, 'completed');
+        broadcast({ type: 'task:update', storyId: story.id, taskId: task.id, status: 'completed' });
+        broadcast({ type: 'story:update', storyId: story.id, status: updatedStory.status });
+        resolve(true);
+      }
+    });
+
+    proc.on('error', async (err) => {
+      log('error', `[Ralph] Failed to spawn claude: ${err.message}`);
+      await updateTaskStatus(projectPath, story.id, task.id, 'failed');
+      broadcast({ type: 'task:update', storyId: story.id, taskId: task.id, status: 'failed' });
+      broadcast({ type: 'story:update', storyId: story.id, status: 'failed' });
+      resolve(false);
+    });
+  });
+}
+
 export async function startRalph(projectPath: string, maxStories?: number): Promise<void> {
   if (state.running) {
     throw new Error('Ralph is already running');
@@ -213,22 +320,51 @@ export async function startRalph(projectPath: string, maxStories?: number): Prom
         break;
       }
 
-      const pendingStory = prd.stories.find((s) => s.status === 'pending');
-      if (!pendingStory) {
+      // Find the first story that is not yet completed/failed
+      const activeStory = prd.stories.find((s) => s.status === 'pending' || s.status === 'in-progress');
+      if (!activeStory) {
         log('info', '[Ralph] All stories completed!');
         break;
       }
 
-      state.currentStoryId = pendingStory.id;
-      const success = await runStory(projectPath, pendingStory);
-      state.currentStoryId = undefined;
+      state.currentStoryId = activeStory.id;
 
-      if (!success) {
-        log('error', `[Ralph] Story failed: ${pendingStory.title}. Stopping.`);
-        break;
+      // Task-mode: story has tasks — execute one pending task at a time
+      if (activeStory.tasks && activeStory.tasks.length > 0) {
+        const pendingTask = activeStory.tasks.find((t) => t.status === 'pending');
+        if (!pendingTask) {
+          // All tasks done or failed but story status wasn't updated — shouldn't happen, skip
+          storiesProcessed++;
+          state.currentStoryId = undefined;
+          continue;
+        }
+        state.currentTaskId = pendingTask.id;
+        const success = await runTask(projectPath, activeStory, pendingTask);
+        state.currentTaskId = undefined;
+        state.currentStoryId = undefined;
+
+        if (!success) {
+          log('error', `[Ralph] Task failed: ${pendingTask.title}. Stopping.`);
+          break;
+        }
+        // Don't increment storiesProcessed — keep looping until story is done
+        // Re-read prd to check if story is now fully complete
+        const updatedPrd = await readPrd(projectPath);
+        const updatedStory = updatedPrd?.stories.find((s) => s.id === activeStory.id);
+        if (updatedStory?.status === 'completed') {
+          storiesProcessed++;
+        }
+      } else {
+        // Legacy story-mode: no tasks, run story as a whole
+        const success = await runStory(projectPath, activeStory);
+        state.currentStoryId = undefined;
+
+        if (!success) {
+          log('error', `[Ralph] Story failed: ${activeStory.title}. Stopping.`);
+          break;
+        }
+        storiesProcessed++;
       }
-
-      storiesProcessed++;
     }
 
     broadcast({ type: 'ralph:completed', exitCode: 0 });
@@ -257,10 +393,11 @@ export function stopRalph(): void {
   log('info', '[Ralph] Stopped by user.');
 }
 
-export function getRalphStatus(): { running: boolean; pid?: number; currentStoryId?: string } {
+export function getRalphStatus(): { running: boolean; pid?: number; currentStoryId?: string; currentTaskId?: string } {
   return {
     running: state.running,
     pid: state.pid,
     currentStoryId: state.currentStoryId,
+    currentTaskId: state.currentTaskId,
   };
 }
