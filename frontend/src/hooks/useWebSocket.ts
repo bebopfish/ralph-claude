@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useAppStore } from '../store/appStore';
+import { apiRalph } from '../api/ralph';
 
 export function useWebSocket() {
   const ws = useRef<WebSocket | null>(null);
@@ -19,6 +20,10 @@ export function useWebSocket() {
 
       ws.current.onopen = () => {
         setWsConnected(true);
+        // Sync running state from backend on (re)connect
+        apiRalph.getStatus().then((status) => {
+          setRalphRunning(status.running, status.pid);
+        }).catch(() => {/* ignore */});
       };
 
       ws.current.onclose = () => {

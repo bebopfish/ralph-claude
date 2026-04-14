@@ -2,6 +2,33 @@ import { create } from 'zustand';
 import { PrdFile, Story, StoryStatus, LogEntry } from '../types';
 import { apiPrd } from '../api/prd';
 
+const LOG_STORAGE_PREFIX = 'ralph-logs';
+const LOG_MAX_PERSIST = 500;
+
+function loadLogsFromStorage(project: string): LogEntry[] {
+  try {
+    const raw = localStorage.getItem(`${LOG_STORAGE_PREFIX}:${project}`);
+    return raw ? (JSON.parse(raw) as LogEntry[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLogsToStorage(project: string, logs: LogEntry[]): void {
+  try {
+    localStorage.setItem(
+      `${LOG_STORAGE_PREFIX}:${project}`,
+      JSON.stringify(logs.slice(-LOG_MAX_PERSIST))
+    );
+  } catch {
+    // Storage full, ignore
+  }
+}
+
+function clearLogsFromStorage(project: string): void {
+  localStorage.removeItem(`${LOG_STORAGE_PREFIX}:${project}`);
+}
+
 interface AppState {
   // Project
   currentProject: string | null;
@@ -34,7 +61,10 @@ interface AppState {
 
 export const useAppStore = create<AppState>((set, get) => ({
   currentProject: null,
-  setCurrentProject: (path) => set({ currentProject: path }),
+  setCurrentProject: (path) => set({
+    currentProject: path,
+    logs: path ? loadLogsFromStorage(path) : [],
+  }),
 
   prd: null,
   prdLoading: false,
@@ -76,10 +106,16 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   logs: [],
   appendLog: (entry) =>
-    set((state) => ({
-      logs: [...state.logs.slice(-2000), entry], // keep last 2000 lines
-    })),
-  clearLogs: () => set({ logs: [] }),
+    set((state) => {
+      const logs = [...state.logs.slice(-2000), entry];
+      if (state.currentProject) saveLogsToStorage(state.currentProject, logs);
+      return { logs };
+    }),
+  clearLogs: () =>
+    set((state) => {
+      if (state.currentProject) clearLogsFromStorage(state.currentProject);
+      return { logs: [] };
+    }),
 
   wsConnected: false,
   setWsConnected: (connected) => set({ wsConnected: connected }),
